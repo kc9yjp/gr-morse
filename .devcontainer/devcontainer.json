@@ -1,0 +1,25 @@
+{
+  "name": "gr-morse",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "runArgs": [
+    "--privileged",
+    "--volume", "/dev/bus/usb:/dev/bus/usb",
+    "--volume", "/tmp/.X11-unix:/tmp/.X11-unix",
+    "--env", "DISPLAY=${localEnv:DISPLAY}"
+  ],
+  // Grants host display access before container starts
+  "initializeCommand": "xhost +local:docker",
+  // Unloads the kernel driver that conflicts with gr-osmosdr/rtl-sdr;
+  // runs inside the privileged container so it affects the host kernel.
+  // Silently ignored if the module is not loaded.
+  "postStartCommand": "rmmod dvb_usb_rtl28xxu 2>/dev/null || true",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python"
+      ]
+    }
+  }
+}
