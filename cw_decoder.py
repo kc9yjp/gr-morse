@@ -1,38 +1,26 @@
-#!/usr/bin/env python3
 """
-CW Morse Code Decoder - GnuRadio Flowgraph
-==========================================
-Pipeline:
-  Audio Source (soundcard or SDR)
-    -> Low Pass Filter       (isolate CW tone band)
-    -> Complex to Mag        (envelope)
-    -> Moving Average        (smooth envelope)
-    -> Threshold             (binary 0/1)
-    -> CW Decoder block      (EdgeDetector + TimingAnalyzer + MorseDecoder)
-    -> Message port          -> qtgui text sink  (GUI)
-                             -> console print    (debug)
-
-Dependencies:
-    pip install gnuradio
-    (gr-qtgui is included with most GnuRadio installs)
-
-Usage:
-    python cw_decoder.py
+CW Morse Decoder — core module
+==============================
+Provides:
+  MorseDecoder       – Morse symbol → character lookup tree
+  TimingAnalyzer     – Classifies pulse/silence durations as dit/dah/space
+  EdgeDetector       – Converts binary sample stream to timing events
+  CWDecoderBlock     – GnuRadio sync_block: binary float stream → PMT messages
+  CWSignalPipeline   – Builds the GR signal-conditioning chain
+                       (LPF → square → IIR avg → threshold → CWDecoderBlock)
+  CWDecoderWidget    – Qt widget: scrolling decoded-text display + Clear button
 """
 
 import sys
-import time
 import numpy as np
 import pmt
 
-from gnuradio import gr, audio, filter, blocks, qtgui
+from gnuradio import gr, filter, blocks
 from gnuradio.filter import firdes
 from PyQt5 import Qt
 
 
-# ---------------------------------------------------------------------------
-# Morse decode tree
-# ---------------------------------------------------------------------------
+# ── Morse decode tree ──────────────────────────────────────────────────────────
 
 class MorseNode:
     def __init__(self):
@@ -88,9 +76,7 @@ class MorseDecoder:
         return node.letter if node.letter else '?'
 
 
-# ---------------------------------------------------------------------------
-# Timing analysis (Farnsworth-aware)
-# ---------------------------------------------------------------------------
+# ── Timing analysis (Farnsworth-aware) ────────────────────────────────────────
 
 class TimingAnalyzer:
     def __init__(self, char_dit_ms=60, farn_dit_ms=150):
@@ -120,9 +106,7 @@ class TimingAnalyzer:
         return (kind, symbol if symbol else None)
 
 
-# ---------------------------------------------------------------------------
-# Edge detector  (binary sample stream -> pulse/silence durations)
-# ---------------------------------------------------------------------------
+# ── Edge detector ──────────────────────────────────────────────────────────────
 
 class EdgeDetector:
     def __init__(self, sample_rate=8000, char_dit_ms=60, farn_dit_ms=150):
@@ -150,16 +134,14 @@ class EdgeDetector:
         return result
 
 
-# ---------------------------------------------------------------------------
-# GnuRadio block — wires EdgeDetector + MorseDecoder, emits messages
-# ---------------------------------------------------------------------------
+# ── GnuRadio CW decoder block ──────────────────────────────────────────────────
 
 class CWDecoderBlock(gr.sync_block):
     """
     GnuRadio sync block.
-    Input:  float32 binary stream (0.0 / 1.0) from threshold block
-    Output: PMT messages on 'decoded' port (one per character)
-            Also prints decoded text to stdout for debugging.
+    Input:  float32 binary stream (0.0 / 1.0) from threshold block.
+    Output: PMT messages on 'decoded' port (one string per character).
+            Also echoes decoded text to stdout for debugging.
     """
 
     def __init__(self, sample_rate=8000, char_dit_ms=60, farn_dit_ms=150):
@@ -174,7 +156,6 @@ class CWDecoderBlock(gr.sync_block):
         self.message_port_register_out(pmt.intern('decoded'))
 
     def _emit(self, text):
-        """Send text to both the message port (GUI) and stdout (debug)."""
         sys.stdout.write(text)
         sys.stdout.flush()
         self.message_port_pub(pmt.intern('decoded'), pmt.intern(text))
@@ -182,161 +163,114 @@ class CWDecoderBlock(gr.sync_block):
     def work(self, input_items, output_items):
         for sample in input_items[0]:
             result = self.edge.push_sample(sample)
-
             if result is None:
                 continue
-
             kind, symbol = result
-
             if kind == 'intra' or symbol is None:
                 continue
-
             letter = self.morse.decode_symbol(symbol)
-
             if kind == 'word':
                 self._emit(letter)
                 self._emit(' ')
             else:
                 self._emit(letter)
-
         return len(input_items[0])
 
 
-# ---------------------------------------------------------------------------
-# Top-level flowgraph
-# ---------------------------------------------------------------------------
+# ── Signal conditioning pipeline ───────────────────────────────────────────────
 
-class CWFlowgraph(gr.top_block, Qt.QWidget):
+class CWSignalPipeline:
     """
-    Full GnuRadio flowgraph:
-      audio source -> LPF -> envelope -> moving avg -> threshold -> CW decoder -> GUI
-    
-    Tune AUDIO_FREQ to the CW tone coming out of your receiver (typically 600-800 Hz).
-    Tune CHAR_DIT_MS / FARN_DIT_MS to match the sender's speed.
+    Builds and connects the GR blocks that condition a float audio signal
+    for CW decoding.  Not itself a GR block — call connect_source() once the
+    top block and this object have both been created.
+
+    Pipeline:  LPF → square → IIR avg → threshold → CWDecoderBlock
+
+    Parameters
+    ----------
+    sample_rate  : Hz  — must match the upstream audio/SDR decimated rate
+    lpf_cutoff   : Hz  — low-pass cutoff to isolate the envelope band
+    lpf_trans    : Hz  — LPF transition width
+    avg_len      : samples — IIR smoothing window (2/avg_len → alpha)
+    threshold    : 0–1 — envelope level for key-on/off decision
+    char_dit_ms  : ms  — dit length at character speed
+    farn_dit_ms  : ms  — dit length for inter-character gaps (Farnsworth)
+
+    Attributes
+    ----------
+    cw : CWDecoderBlock
+        Use for message-port connections: (pipeline.cw, 'decoded')
     """
 
-    SAMPLE_RATE  = 8000     # Hz  — audio sample rate
-    AUDIO_FREQ   = 700      # Hz  — expected CW tone frequency
-    LPF_CUTOFF   = 150      # Hz  — low pass filter cutoff (half the CW passband)
-    LPF_TRANS    = 50       # Hz  — LPF transition width
-    AVG_LEN      = 400      # samples — moving average window (~50ms at 8kHz)
-    THRESHOLD    = 0.1      # 0.0-1.0 — envelope threshold for on/off decision
-    CHAR_DIT_MS  = 60       # ms  — dit length at character speed (18 WPM)
-    FARN_DIT_MS  = 150      # ms  — dit length for inter-char gaps (Farnsworth)
+    def __init__(self, sample_rate=8000,
+                 lpf_cutoff=150, lpf_trans=50,
+                 avg_len=400, threshold=0.1,
+                 char_dit_ms=60, farn_dit_ms=150):
 
-    def __init__(self):
-        gr.top_block.__init__(self, 'CW Decoder')
-        Qt.QWidget.__init__(self)
-        self.setWindowTitle('CW Morse Decoder')
+        lpf_taps = firdes.low_pass(
+            gain=1.0,
+            sampling_freq=sample_rate,
+            cutoff_freq=lpf_cutoff,
+            transition_width=lpf_trans,
+            window=firdes.WIN_HAMMING,
+        )
+        self.lpf    = filter.fir_filter_fff(1, lpf_taps)
+        self.sqr    = blocks.multiply_ff()
+        self.avg    = filter.single_pole_iir_filter_ff(2.0 / avg_len)
+        self.thresh = blocks.threshold_ff(
+            lo=threshold * 0.8,
+            hi=threshold,
+            initial_state=0,
+        )
+        self.cw = CWDecoderBlock(sample_rate, char_dit_ms, farn_dit_ms)
 
-        # --- Build the Qt layout ---
-        self._layout = Qt.QVBoxLayout(self)
+    def connect_source(self, tb, source):
+        """Wire *source* (a single-output float32 block) into this pipeline."""
+        tb.connect(source,     self.lpf)
+        tb.connect(self.lpf,   (self.sqr, 0))
+        tb.connect(self.lpf,   (self.sqr, 1))
+        tb.connect(self.sqr,   self.avg)
+        tb.connect(self.avg,   self.thresh)
+        tb.connect(self.thresh, self.cw)
 
-        self._label = Qt.QLabel('Decoded text:')
-        self._layout.addWidget(self._label)
+
+# ── Qt display widget ──────────────────────────────────────────────────────────
+
+class CWDecoderWidget(Qt.QWidget):
+    """
+    Scrolling decoded-text display with a status line and Clear button.
+
+    Connect to a CWDecoderBlock via on_message(), typically through a
+    qtgui.msg_sink msghandler callback.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = Qt.QVBoxLayout(self)
+
+        layout.addWidget(Qt.QLabel('Decoded text:'))
 
         self._text_box = Qt.QTextEdit()
         self._text_box.setReadOnly(True)
         self._text_box.setMinimumHeight(200)
         self._text_box.setStyleSheet('font-family: monospace; font-size: 16pt;')
-        self._layout.addWidget(self._text_box)
+        layout.addWidget(self._text_box)
 
-        status_row = Qt.QHBoxLayout()
-        self._status = Qt.QLabel('Listening...')
-        status_row.addWidget(self._status)
+        row = Qt.QHBoxLayout()
+        self._status = Qt.QLabel('Listening…')
+        row.addWidget(self._status)
+        clear_btn = Qt.QPushButton('Clear')
+        clear_btn.clicked.connect(self._text_box.clear)
+        row.addWidget(clear_btn)
+        layout.addLayout(row)
 
-        self._clear_btn = Qt.QPushButton('Clear')
-        self._clear_btn.clicked.connect(self._text_box.clear)
-        status_row.addWidget(self._clear_btn)
-        self._layout.addLayout(status_row)
+    def set_status(self, text):
+        self._status.setText(text)
 
-        # --- GnuRadio blocks ---
-
-        # 1. Audio source (system soundcard, mono)
-        self.audio_src = audio.source(self.SAMPLE_RATE, '', True)
-
-        # 2. Low pass filter — isolates the CW tone band
-        lpf_taps = firdes.low_pass(
-            gain=1.0,
-            sampling_freq=self.SAMPLE_RATE,
-            cutoff_freq=self.LPF_CUTOFF,
-            transition_width=self.LPF_TRANS,
-            window=firdes.WIN_HAMMING
-        )
-        self.lpf = filter.fir_filter_fff(1, lpf_taps)
-
-        # 3. Complex to magnitude — rectify to get the envelope
-        #    (audio is already real, so we use multiply to self as a simple rectifier)
-        self.sqr = blocks.multiply_ff()
-
-        # 4. Moving average — smooths the squared envelope
-        self.avg = filter.single_pole_iir_filter_ff(
-            2.0 / self.AVG_LEN
-        )
-
-        # 5. Threshold — binary on/off
-        self.thresh = blocks.threshold_ff(
-            lo=self.THRESHOLD * 0.8,
-            hi=self.THRESHOLD,
-            initial_state=0
-        )
-
-        # 6. CW decoder block
-        self.cw = CWDecoderBlock(
-            sample_rate=self.SAMPLE_RATE,
-            char_dit_ms=self.CHAR_DIT_MS,
-            farn_dit_ms=self.FARN_DIT_MS
-        )
-
-        # 7. qtgui message sink — receives PMT messages from cw block
-        self.msg_sink = qtgui.msg_sink(
-            filter=pmt.PMT_NIL,
-            msghandler=self._on_message,
-            preserve_pmt=False
-        )
-
-        # --- Wire the flowgraph ---
-        self.connect(self.audio_src, self.lpf)
-        self.connect(self.lpf, (self.sqr, 0))
-        self.connect(self.lpf, (self.sqr, 1))   # multiply signal by itself -> square
-        self.connect(self.sqr, self.avg)
-        self.connect(self.avg, self.thresh)
-        self.connect(self.thresh, self.cw)
-
-        self.msg_connect((self.cw, 'decoded'), (self.msg_sink, 'in'))
-
-    def _on_message(self, msg):
-        """Called by qtgui msg_sink when a decoded character arrives."""
+    def on_message(self, msg):
+        """Append a decoded PMT symbol string and auto-scroll."""
         text = pmt.symbol_to_string(msg)
         self._text_box.insertPlainText(text)
-        # Auto-scroll to bottom
         sb = self._text_box.verticalScrollBar()
         sb.setValue(sb.maximum())
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-def main():
-    app = Qt.QApplication(sys.argv)
-
-    tb = CWFlowgraph()
-    tb.start()
-    tb.show()
-
-    print('CW decoder running. Listening on default audio input.')
-    print('Tune your receiver to a CW signal and watch characters appear.\n')
-
-    try:
-        app.exec_()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        tb.stop()
-        tb.wait()
-        print('\nDecoder stopped.')
-
-
-if __name__ == '__main__':
-    main()
