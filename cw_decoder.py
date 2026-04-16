@@ -13,11 +13,6 @@ Provides:
 
 import sys
 import numpy as np
-import pmt
-
-from gnuradio import gr, filter, blocks
-from gnuradio.filter import firdes
-from PyQt5 import Qt
 
 
 # ── Morse decode tree ──────────────────────────────────────────────────────────
@@ -133,10 +128,18 @@ class EdgeDetector:
         self.run_length = 1
         return result
 
+    def flush(self):
+        """Flush any pending tone as if an inter-character silence followed."""
+        if self.last_value == 1:
+            duration_ms = (self.run_length / self.sample_rate) * 1000
+            self.timing.push_pulse(duration_ms)
+        # 4× farn_dit_ms: always a letter gap (> char_dit_ms*2, < farn_dit_ms*5)
+        return self.timing.push_silence(self.timing.farn_dit_ms * 4)
+
 
 # ── GnuRadio CW decoder block ──────────────────────────────────────────────────
 
-class CWDecoderBlock(gr.sync_block):
+class CWDecoderBlock:
     """
     GnuRadio sync block.
     Input:  float32 binary stream (0.0 / 1.0) from threshold block.
@@ -145,20 +148,23 @@ class CWDecoderBlock(gr.sync_block):
     """
 
     def __init__(self, sample_rate=8000, char_dit_ms=60, farn_dit_ms=150):
+        import pmt
+        from gnuradio import gr
         gr.sync_block.__init__(self,
             name='CW Decoder',
             in_sig=[np.float32],
             out_sig=None)
 
-        self.edge  = EdgeDetector(sample_rate, char_dit_ms, farn_dit_ms)
-        self.morse = MorseDecoder()
+        self._pmt   = pmt
+        self.edge   = EdgeDetector(sample_rate, char_dit_ms, farn_dit_ms)
+        self.morse  = MorseDecoder()
 
         self.message_port_register_out(pmt.intern('decoded'))
 
     def _emit(self, text):
         sys.stdout.write(text)
         sys.stdout.flush()
-        self.message_port_pub(pmt.intern('decoded'), pmt.intern(text))
+        self.message_port_pub(self._pmt.intern('decoded'), self._pmt.intern(text))
 
     def work(self, input_items, output_items):
         for sample in input_items[0]:
@@ -207,6 +213,8 @@ class CWSignalPipeline:
                  lpf_cutoff=150, lpf_trans=50,
                  avg_len=400, threshold=0.1,
                  char_dit_ms=60, farn_dit_ms=150):
+        from gnuradio import filter, blocks
+        from gnuradio.filter import firdes
 
         lpf_taps = firdes.low_pass(
             gain=1.0,
@@ -237,7 +245,7 @@ class CWSignalPipeline:
 
 # ── Qt display widget ──────────────────────────────────────────────────────────
 
-class CWDecoderWidget(Qt.QWidget):
+class CWDecoderWidget:
     """
     Scrolling decoded-text display with a status line and Clear button.
 
@@ -246,6 +254,9 @@ class CWDecoderWidget(Qt.QWidget):
     """
 
     def __init__(self, parent=None):
+        import pmt as _pmt
+        from PyQt5 import Qt
+        self._pmt = _pmt
         super().__init__(parent)
         layout = Qt.QVBoxLayout(self)
 
@@ -270,7 +281,7 @@ class CWDecoderWidget(Qt.QWidget):
 
     def on_message(self, msg):
         """Append a decoded PMT symbol string and auto-scroll."""
-        text = pmt.symbol_to_string(msg)
+        text = self._pmt.symbol_to_string(msg)
         self._text_box.insertPlainText(text)
         sb = self._text_box.verticalScrollBar()
         sb.setValue(sb.maximum())
