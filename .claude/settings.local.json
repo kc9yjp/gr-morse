@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr create --title 'Refactor into reusable module + audio and SDR frontends' --body ':*)",
+      "Bash(where gh:*)",
+      "Bash(winget list:*)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Users/ejwet/AppData/Local/Programs/**)",
+      "Read(//c/Users/ejwet/**)"
+    ]
+  }
+}
