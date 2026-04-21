@@ -1,14 +1,8 @@
-# GNU Radio with Python bindings, gr-qtgui, and pmt — install via system package
-# manager or conda (e.g. `sudo pacman -S gnuradio` or `conda install -c conda-forge gnuradio`)
-# gnuradio
-# pmt  (bundled with gnuradio)
+# GNU Radio, pmt, gr-osmosdr, numpy, PyQt5 — install via system package manager.
+# The venv must be created with --system-site-packages to pick these up.
+# e.g. Ubuntu:  sudo apt install gnuradio gr-osmosdr python3-pyqt5 python3-numpy
+#      Arch:    sudo pacman -S gnuradio gr-osmosdr python-pyqt5 python-numpy
 
-# gr-osmosdr — required only for frontend_sdr.py; install via system package manager
-# (e.g. `sudo pacman -S gr-osmosdr` or `conda install -c conda-forge gr-osmosdr`)
-# gr-osmosdr
-
-numpy
-PyQt5
-
-# Optional: only needed for --list-devices in frontend_audio.py
-sounddevice
+# pip-installable extras
+sounddevice   # optional: only for --list-devices in frontend_audio.py
+pytest

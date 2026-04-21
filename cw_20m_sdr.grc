@@ -1,0 +1,598 @@
+options:
+  parameters:
+    author: gr-morse
+    catch_exceptions: 'True'
+    category: '[GRC Hier Blocks]'
+    cmake_opt: ''
+    comment: ''
+    copyright: ''
+    description: CW Morse decoder for 20m ham band (14.0-14.35 MHz) using RTL-SDR
+      or any gr-osmosdr-compatible device
+    gen_cmake: 'On'
+    gen_linking: dynamic
+    generate_options: qt_gui
+    hier_block_src_path: '.:'
+    id: cw_20m_sdr
+    max_nouts: '0'
+    output_language: python
+    placement: (0,0)
+    qt_qss_theme: ''
+    realtime_scheduling: ''
+    run: 'True'
+    run_command: '{python} -u {filename}'
+    run_options: prompt
+    sizing_mode: fixed
+    thread_safe_setters: ''
+    title: CW Decoder - 20m Ham Band
+    window_size: (1000,1000)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [8, 8]
+    rotation: 0
+    state: enabled
+
+blocks:
+  # ── Variables ──────────────────────────────────────────────────────────────
+
+  - name: sdr_rate
+    id: variable
+    parameters:
+      comment: SDR input sample rate (Hz)
+      value: '250000'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [184, 8]
+      rotation: 0
+      state: enabled
+
+  - name: decim
+    id: variable
+    parameters:
+      comment: Integer decimation factor SDR→audio
+      value: '31'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [280, 8]
+      rotation: 0
+      state: enabled
+
+  - name: audio_rate
+    id: variable
+    parameters:
+      comment: Audio rate after decimation (250000 // 31 ≈ 8064 Hz)
+      value: sdr_rate // decim
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [376, 8]
+      rotation: 0
+      state: enabled
+
+  - name: chan_bw
+    id: variable
+    parameters:
+      comment: Channel bandpass half-width (Hz)
+      value: '500'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [184, 60]
+      rotation: 0
+      state: enabled
+
+  - name: threshold
+    id: variable
+    parameters:
+      comment: Key-on envelope level (0.0–1.0)
+      value: '0.1'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [280, 60]
+      rotation: 0
+      state: enabled
+
+  - name: avg_len
+    id: variable
+    parameters:
+      comment: IIR smoothing window (samples)
+      value: '400'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [376, 60]
+      rotation: 0
+      state: enabled
+
+  - name: char_dit_ms
+    id: variable
+    parameters:
+      comment: Dit length at character speed (ms) — ~18 WPM
+      value: '60'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [472, 60]
+      rotation: 0
+      state: enabled
+
+  - name: farn_dit_ms
+    id: variable
+    parameters:
+      comment: Dit length for Farnsworth inter-character gaps (ms)
+      value: '150'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [568, 60]
+      rotation: 0
+      state: enabled
+
+  # ── GUI controls ───────────────────────────────────────────────────────────
+
+  - name: freq
+    id: variable_qtgui_entry
+    parameters:
+      comment: ''
+      gui_hint: 0,0,1,1
+      label: Frequency (Hz)
+      type: real
+      value: '14025000'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [472, 8]
+      rotation: 0
+      state: enabled
+
+  - name: gain
+    id: variable_qtgui_range
+    parameters:
+      comment: ''
+      gui_hint: 0,1,1,1
+      label: Gain (dB)
+      min_len: '200'
+      orient: QtCore.Qt.Horizontal
+      rangeType: int
+      start: '0'
+      step: '1'
+      stop: '50'
+      value: '30'
+      widget: counter_slider
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [600, 8]
+      rotation: 0
+      state: enabled
+
+  # ── Signal blocks ──────────────────────────────────────────────────────────
+
+  # 1. RTL-SDR / osmosdr source — 250 kHz IQ centred on the CW carrier
+  - name: osmosdr_source_0
+    id: osmosdr_source
+    parameters:
+      affinity: ''
+      alias: ''
+      ant0: ''
+      args: ''
+      bb_gain0: '20'
+      bw0: '0'
+      center_freq0: freq
+      comment: RTL-SDR (or any gr-osmosdr device). Set args="rtl=0" etc. if needed.
+      corr0: '0'
+      dc_offset_mode0: '0'
+      freq_corr0: '0'
+      gain0: gain
+      gain_mode0: 'False'
+      if_gain0: '20'
+      iq_balance_mode0: '0'
+      maxoutbuf: '0'
+      minoutbuf: '0'
+      num_channels: '1'
+      sample_rate: sdr_rate
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [8, 200]
+      rotation: 0
+      state: enabled
+
+  # 2. Complex channel filter — ±chan_bw Hz bandpass, decimate 250 kHz → ~8 kHz
+  - name: low_pass_filter_0
+    id: low_pass_filter
+    parameters:
+      affinity: ''
+      alias: ''
+      beta: '6.76'
+      comment: Narrow channel filter + integer decimation (complex in, complex out)
+      cutoff_freq: chan_bw
+      decim: decim
+      gain: '1'
+      interp: '1'
+      maxoutbuf: '0'
+      minoutbuf: '0'
+      samp_rate: sdr_rate
+      type: fir_filter_ccf
+      width: '200'
+      win: window.WIN_HAMMING
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [250, 200]
+      rotation: 0
+      state: enabled
+
+  # 3. Narrowband IQ waterfall — shows the CW tone centred at DC
+  - name: qtgui_waterfall_sink_x_0
+    id: qtgui_waterfall_sink_x
+    parameters:
+      affinity: ''
+      alias: ''
+      alpha1: '1.0'
+      alpha10: '1.0'
+      alpha2: '1.0'
+      alpha3: '1.0'
+      alpha4: '1.0'
+      alpha5: '1.0'
+      alpha6: '1.0'
+      alpha7: '1.0'
+      alpha8: '1.0'
+      alpha9: '1.0'
+      axislabels: 'True'
+      bw: audio_rate
+      color1: '0'
+      color10: '0'
+      color2: '0'
+      color3: '0'
+      color4: '0'
+      color5: '0'
+      color6: '0'
+      color7: '0'
+      color8: '0'
+      color9: '0'
+      comment: ''
+      fc: freq
+      fftsize: '1024'
+      freqhalf: 'True'
+      grid: 'False'
+      gui_hint: 1,0,1,2
+      int_max: '10'
+      int_min: '-80'
+      label: ''
+      label1: ''
+      label10: ''
+      label2: ''
+      label3: ''
+      label4: ''
+      label5: ''
+      label6: ''
+      label7: ''
+      label8: ''
+      label9: ''
+      legend: 'True'
+      maxoutbuf: '0'
+      minoutbuf: '0'
+      name: '"CW Waterfall (±500 Hz)"'
+      nconnections: '1'
+      showports: 'False'
+      type: complex
+      update_time: '0.05'
+      wintype: window.WIN_BLACKMAN_hARRIS
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [250, 350]
+      rotation: 0
+      state: enabled
+
+  # 4. Envelope detection: complex IQ → float magnitude
+  - name: blocks_complex_to_mag_0
+    id: blocks_complex_to_mag
+    parameters:
+      affinity: ''
+      alias: ''
+      comment: ''
+      maxoutbuf: '0'
+      minoutbuf: '0'
+      vlen: '1'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [500, 200]
+      rotation: 0
+      state: enabled
+
+  # 5. Audio LPF — isolate the CW envelope band (≤150 Hz)
+  - name: low_pass_filter_1
+    id: low_pass_filter
+    parameters:
+      affinity: ''
+      alias: ''
+      beta: '6.76'
+      comment: CW envelope low-pass filter (float in, float out)
+      cutoff_freq: '150'
+      decim: '1'
+      gain: '1'
+      interp: '1'
+      maxoutbuf: '0'
+      minoutbuf: '0'
+      samp_rate: audio_rate
+      type: fir_filter_fff
+      width: '50'
+      win: window.WIN_HAMMING
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [650, 200]
+      rotation: 0
+      state: enabled
+
+  # 6. Square the envelope (self-multiply both inputs from LPF)
+  - name: blocks_multiply_xx_0
+    id: blocks_multiply_xx
+    parameters:
+      affinity: ''
+      alias: ''
+      comment: Squaring sharpens envelope edges
+      maxoutbuf: '0'
+      minoutbuf: '0'
+      num_inputs: '2'
+      type: float
+      vlen: '1'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [800, 200]
+      rotation: 0
+      state: enabled
+
+  # 7. Moving-average smoother (~50 ms window = avg_len samples at audio_rate)
+  - name: blocks_moving_average_xx_0
+    id: blocks_moving_average_xx
+    parameters:
+      affinity: ''
+      alias: ''
+      comment: ''
+      length: avg_len
+      max_iter: '4096'
+      maxoutbuf: '0'
+      minoutbuf: '0'
+      scale: 1.0 / avg_len
+      type: float
+      vlen: '1'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [950, 200]
+      rotation: 0
+      state: enabled
+
+  # 8. Threshold — binary key-on (1.0) / key-off (0.0) stream
+  - name: blocks_threshold_ff_0
+    id: blocks_threshold_ff
+    parameters:
+      affinity: ''
+      alias: ''
+      comment: ''
+      high: threshold
+      init: '0'
+      low: threshold * 0.8
+      maxoutbuf: '0'
+      minoutbuf: '0'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [1100, 200]
+      rotation: 0
+      state: enabled
+
+  # 9. CW Decoder — self-contained embedded Python block (no external imports)
+  - name: epy_block_cw_0
+    id: epy_block
+    parameters:
+      _source_code: |
+        import numpy as np
+        from gnuradio import gr
+        import pmt
+        import sys
+
+
+        # ── Morse decode tree ──────────────────────────────────────────────────
+
+        class _MorseNode:
+            __slots__ = ('letter', 'dit', 'dah')
+            def __init__(self):
+                self.letter = ''
+                self.dit = None
+                self.dah = None
+
+
+        class _MorseDecoder:
+            def __init__(self):
+                self.root = _MorseNode()
+                codes = {
+                    '.': 'E', '-': 'T',
+                    '..': 'I', '.-': 'A', '-.': 'N', '--': 'M',
+                    '...': 'S', '..-': 'U', '.-.': 'R', '.--': 'W',
+                    '-..': 'D', '-.-': 'K', '--.': 'G', '---': 'O',
+                    '....': 'H', '...-': 'V', '..-.': 'F',
+                    '.-..': 'L', '.--.' : 'P', '.---': 'J',
+                    '-...': 'B', '-..-': 'X', '-.-.': 'C', '-.--': 'Y',
+                    '--..': 'Z', '--.-': 'Q',
+                    '.----': '1', '..---': '2', '...--': '3', '....-': '4',
+                    '.....': '5', '-....': '6', '--...': '7', '---..': '8',
+                    '----.': '9', '-----': '0',
+                    '.-.-.-': '.', '--..--': ',', '..--..': '?',
+                    '-..-.': '/', '-....-': '-', '-.--.': '(', '-.--.-': ')',
+                }
+                for seq, ch in codes.items():
+                    node = self.root
+                    for s in seq:
+                        if s == '.':
+                            if node.dit is None:
+                                node.dit = _MorseNode()
+                            node = node.dit
+                        else:
+                            if node.dah is None:
+                                node.dah = _MorseNode()
+                            node = node.dah
+                    node.letter = ch
+
+            def decode(self, sequence):
+                node = self.root
+                for s in sequence:
+                    node = node.dit if s == '.' else node.dah
+                    if node is None:
+                        return '?'
+                return node.letter or '?'
+
+
+        # ── Timing analysis ────────────────────────────────────────────────────
+
+        class _TimingAnalyzer:
+            def __init__(self, char_dit_ms, farn_dit_ms):
+                self.char_dit_ms = char_dit_ms
+                self.farn_dit_ms = farn_dit_ms
+                self._buf = []
+
+            def push_pulse(self, ms):
+                self._buf.append('.' if ms < self.char_dit_ms * 2 else '-')
+
+            def push_silence(self, ms):
+                if ms < self.char_dit_ms * 2:
+                    return 'intra', None
+                sym = ''.join(self._buf)
+                self._buf = []
+                if ms < self.farn_dit_ms * 5:
+                    return 'letter', sym or None
+                return 'word', sym or None
+
+
+        # ── Edge detector ──────────────────────────────────────────────────────
+
+        class _EdgeDetector:
+            def __init__(self, sample_rate, char_dit_ms, farn_dit_ms):
+                self.sample_rate = sample_rate
+                self.timing = _TimingAnalyzer(char_dit_ms, farn_dit_ms)
+                self.last = 0
+                self.run = 0
+
+            def push(self, value):
+                b = 1 if value > 0.5 else 0
+                if b == self.last:
+                    self.run += 1
+                    return None
+                ms = (self.run / self.sample_rate) * 1000
+                if self.last == 1:
+                    self.timing.push_pulse(ms)
+                    result = None
+                else:
+                    result = self.timing.push_silence(ms)
+                self.last = b
+                self.run = 1
+                return result
+
+
+        # ── GnuRadio block ─────────────────────────────────────────────────────
+
+        class blk(gr.sync_block):
+            """CW Morse Decoder — float32 binary stream in, PMT messages out"""
+
+            def __init__(self, sample_rate=8064, char_dit_ms=60, farn_dit_ms=150):
+                gr.sync_block.__init__(self,
+                    name='CW Decoder',
+                    in_sig=[np.float32],
+                    out_sig=None)
+                self._edge = _EdgeDetector(int(sample_rate), char_dit_ms, farn_dit_ms)
+                self._morse = _MorseDecoder()
+                self.message_port_register_out(pmt.intern('decoded'))
+
+            def work(self, input_items, output_items):
+                for sample in input_items[0]:
+                    result = self._edge.push(float(sample))
+                    if result is None:
+                        continue
+                    kind, symbol = result
+                    if kind == 'intra' or not symbol:
+                        continue
+                    letter = self._morse.decode(symbol)
+                    text = letter + (' ' if kind == 'word' else '')
+                    sys.stdout.write(text)
+                    sys.stdout.flush()
+                    self.message_port_pub(pmt.intern('decoded'), pmt.intern(text))
+                return len(input_items[0])
+      affinity: ''
+      alias: ''
+      char_dit_ms: char_dit_ms
+      comment: Decodes binary threshold stream → Morse characters via cw_decoder.py
+      farn_dit_ms: farn_dit_ms
+      maxoutbuf: '0'
+      minoutbuf: '0'
+      sample_rate: audio_rate
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [1250, 200]
+      rotation: 0
+      state: enabled
+
+  # 10. Message debug — prints decoded characters to terminal
+  - name: blocks_message_debug_0
+    id: blocks_message_debug
+    parameters:
+      affinity: ''
+      alias: ''
+      comment: Decoded Morse text appears in terminal
+      en_uvec: 'False'
+    states:
+      bus_sink: false
+      bus_source: false
+      bus_structure: null
+      coordinate: [1400, 200]
+      rotation: 0
+      state: enabled
+
+connections:
+  # SDR → channel filter → waterfall (IQ display)
+  - [osmosdr_source_0, '0', low_pass_filter_0, '0']
+  - [low_pass_filter_0, '0', qtgui_waterfall_sink_x_0, '0']
+
+  # Channel filter → envelope → CW pipeline
+  - [low_pass_filter_0, '0', blocks_complex_to_mag_0, '0']
+  - [blocks_complex_to_mag_0, '0', low_pass_filter_1, '0']
+  - [low_pass_filter_1, '0', blocks_multiply_xx_0, '0']
+  - [low_pass_filter_1, '0', blocks_multiply_xx_0, '1']
+  - [blocks_multiply_xx_0, '0', blocks_moving_average_xx_0, '0']
+  - [blocks_moving_average_xx_0, '0', blocks_threshold_ff_0, '0']
+  - [blocks_threshold_ff_0, '0', epy_block_cw_0, '0']
+
+  # CW decoder message → terminal output
+  - [epy_block_cw_0, decoded, blocks_message_debug_0, print]
+
+metadata:
+  file_format: 1
+  grc_version: 3.10.10.0

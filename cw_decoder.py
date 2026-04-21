@@ -13,6 +13,7 @@ Provides:
 
 import sys
 import numpy as np
+from PyQt5 import Qt
 
 
 # ── Morse decode tree ──────────────────────────────────────────────────────────
@@ -247,7 +248,7 @@ class CWSignalPipeline:
 
 # ── Qt display widget ──────────────────────────────────────────────────────────
 
-class CWDecoderWidget:
+class CWDecoderWidget(Qt.QWidget):
     """
     Scrolling decoded-text display with a status line and Clear button.
 
@@ -257,7 +258,6 @@ class CWDecoderWidget:
 
     def __init__(self, parent=None):
         import pmt as _pmt
-        from PyQt5 import Qt
         self._pmt = _pmt
         super().__init__(parent)
         layout = Qt.QVBoxLayout(self)

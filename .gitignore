@@ -1,0 +1,4 @@
+.venv/
+__pycache__/
+*.pyc
+__pycache__/cw_decoder.cpython-312.pyc

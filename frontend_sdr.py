@@ -182,6 +182,11 @@ def main():
                         help='Frequency correction in PPM (default: 0)')
     parser.add_argument('--args', '-a', default='', metavar='ARGS',
                         help='osmosdr device args (e.g. "rtl=0" or "hackrf=0")')
+    
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+
     args = parser.parse_args()
 
     app = Qt.QApplication(sys.argv)
@@ -209,29 +214,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-```
 
-Now three files exist:
-
-| File | Role |
-|---|---|
-| [`cw_decoder.py`](cw_decoder.py) | Module — decoder logic + `CWSignalPipeline` + `CWDecoderWidget` |
-| [`frontend_audio.py`](frontend_audio.py) | Audio source or WAV file |
-| [`frontend_sdr.py`](frontend_sdr.py) | RTL-SDR / osmosdr with live tuning |
-
-**Audio frontend usage:**
-```
-python frontend_audio.py                     # system default input
-python frontend_audio.py --device hw:1,0     # named device
-python frontend_audio.py --file cw.wav       # WAV file
-python frontend_audio.py --list-devices      # needs pip install sounddevice
-```
-
-**SDR frontend usage:**
-```
-python frontend_sdr.py --freq 14.025e6
-python frontend_sdr.py --freq 7.030e6 --gain 40 --ppm -3
-python frontend_sdr.py --freq 14.025e6 --args "rtl=0"
-```
-
-The SDR pipeline is: `osmosdr → complex channel filter (decimate 250k→8k) → complex_to_mag → CWSignalPipeline`. Frequency and gain are adjustable live via spinbox/slider in the GUI.
