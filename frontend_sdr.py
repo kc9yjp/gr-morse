@@ -183,11 +183,11 @@ def main():
     parser.add_argument('--args', '-a', default='', metavar='ARGS',
                         help='osmosdr device args (e.g. "rtl=0" or "hackrf=0")')
     
-    if len(sys.argv) == 1:
+    args = parser.parse_args()
+
+    if not args.args:
         parser.print_help(sys.stderr)
         sys.exit(1)
-
-    args = parser.parse_args()
 
     app = Qt.QApplication(sys.argv)
     tb  = SDRFlowgraph(
